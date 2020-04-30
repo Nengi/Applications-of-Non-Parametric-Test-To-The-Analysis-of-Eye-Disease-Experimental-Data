@@ -1,0 +1,741 @@
+---
+title: "Applications of Non-Parametric Test To The Analysis of Eye Disease Experimental Data"
+date: "`r Sys.Date()`"
+author : "Nengi Harry"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+---
+
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+
+
+# Introduction
+
+The analyzed data was obtained from an experiment, 22 patients participated in the experiment, the treatment was applied to 11 patients with a specific eye infection in either eye (Right Eye:RE, Left Eye:LE, No Infection: OK) and 11 patients with no infection. The following responses - SEWR, NVA, CS and SA where collected before treatment and continuously for 8 weeks after the treatment was applied. The aim of this analysis was to determine if the treatment had a statistically significant effect on the measured scores. \
+
+After conducting exploratory data analysis, it was observed that the data is highly non-normal. The utilization of transformations with mixed model analysis did not produce well fitted models, also a multivariate non-parametric model was utilized but it did not produce efficient results. Therefore, the responses were broken down and tested separately using non-parametric tests.\
+
+First, a Friedman test was used to test each response and the responses with significant change were put through a post-hoc test using the Wilcox Rank Sum test, to investigate if the difference between pre and post test scores is significant.Finally a correlation analysis utilizing the Kendal Rank Correlation was performed to test the strength of association between the responses and Age of the patients.\
+
+
+
+# Exploratory Data Analysis
+
+Prior to performing the tests, the data were checked for completeness and explored to understand patterns in the data.
+
+## Data Cleaning
+
+Read in the data.
+
+```{r}
+df <- read.csv("exp_data_old.csv")
+drops <- c("X","X.1","X.2","X.3","X.4","X.5","X.6","X.7","X.8","X.9","X.10","X.11","X.12")
+df <- df[ , !(names(df) %in% drops)]
+df <- na.omit(df)
+summary(df)
+``` 
+
+## Profile Plots
+A profile plot is a line plot used to visualize within subject factors and between subject factors in a repeated measures data. The lines represent the mean response of the subjects, the colors represent each infection group and the data was plotted for each variable over time (9 weeks). \
+
+
+### SEWR
+
+Change in SEWR for both the left and right eye in all groups was not noticable.\
+
+Right Eye \
+
+```{r}
+library(ggplot2)
+ggplot(df) + geom_line(aes(week,SEWRRE,group=Case,color=AME))
+
+```
+
+Left Eye\
+```{r}
+ggplot(df) + geom_line(aes(week,SEWRLE,group=Case,color=AME))
+```
+
+
+### NVA 
+
+The scores for both the left and right eye did not change much, they ended up in a range between 0.3 to 0.6,\
+
+Right Eye\
+```{r}
+ggplot(df) + geom_line(aes(week,NVARE,group=Case,color=AME))
+```
+
+Left Eye\
+```{r}
+ggplot(df) + geom_line(aes(week,NVALE,group=Case,color=AME))
+```
+
+
+### CS
+
+There was an upward increase in CS scores - patients with infection in their right eye had an increase in CS scores in the right eye  by the end of treatment and patients with infection in their left eye also had an increase in CS scores in their left eye.\
+
+Right Eye\
+```{r}
+ggplot(df) + geom_line(aes(week,CSRE,group=Case,color=AME))
+```
+
+Left Eye\
+```{r}
+ggplot(df) + geom_line(aes(week,CSLE,group=Case,color=AME))
+```
+
+
+### SA
+Patients with eye infection saw a decrease in SA scores, scores for patients with no infection remained constant.\
+
+SA\
+```{r}
+ggplot(df) + geom_line(aes(week,SA,group=Case,color=AME))
+```
+
+
+
+
+
+## Univariate and Bivarate Graphs
+
+Histograms of the responses were plotted with all the 3 (RE, LE, OK) groups together, and then seperately to visualize the distribution and symmetry of the data. From the plots it was clear that the responses are not normaly distributed, the CSRE and CSLE have very skewed left distributions and all the other responses either have right skewed distrutions and/or the plots are not continous, almost having the look of discrete/count data.
+
+### Histograms - All Groups Together
+
+```{r}
+response <- c("SEWRRE","SEWRLE","NVARE","NVALE","CSRE","CSLE","SA")
+
+for (i in response)
+{
+  hist(df[,i],xlab=i,main=paste("Historgram for", i))
+  }
+
+```
+
+
+###  Histograms: Infected Right Eye
+
+```{r}
+library("dplyr")
+
+re <- filter(df,AME=="RE")
+for (i in response)
+{
+  hist(re[,i],ylab=i,xlab = "Week", main=paste("Histogram Of", i))
+  }
+
+```
+
+
+### Histograms: Infected Left Eye
+
+```{r}
+
+le <- filter(df,AME=="LE")
+for (i in response)
+{
+  hist(le[,i],ylab=i,xlab = "Week", main=paste("Histogram Of", i))
+  }
+
+```
+
+
+### Histogram: No Infection
+
+```{r}
+
+ok <- filter(df,AME=="OK")
+for (i in response)
+{
+  hist(ok[,i],ylab=i,xlab = "Week", main=paste("Histogram Of", i))
+  }
+
+```
+
+
+### Pairplots
+
+Below is a Pairplot to show the relationship between the continous variables. As can be seen there is no clear linear or non-linear relationship between the independent variable Age and the responses. A correlation analysis would determine if there is a statistical association between the responses and age, and the magnitude of the association if it does exist.
+
+```{r}
+
+select (df, Age, SEWRRE, SEWRLE, NVARE, NVALE , CSRE , CSLE , SA) %>% pairs()
+```
+
+
+
+# Non-Parametric Tests
+
+Non-parametric tests are a class of statistical distribution free tests that are used in place of parametric tests when the data does not follow the requirements to use parametric test.\
+
+Mixed models are used to analyze repeated measures data. They include a fixed effects part of the model which includes factors being analyzed and of intrest to the researcher, and a random effects part which includes subject factors that are not of interest for analysis but need to be accounted for. In this case, the fixed effects are the infection groups, time taken (weeks), and the interaction between the time and groups. The random effects are each of the 22 patients.\
+
+The fixed effects section is the regular linear model and as such it has requirements for residual heterosckedacity and normality. The responses in this data are non-normal and they are not resolved with data transformations - a sample of the model for CS for the right eye is shown below with the residual plots. As such a Friedman test which is a non-parametric repeated measures test was used instead.\
+
+### Mixed Model
+
+```{r}
+library("nlme")
+df$lgCSRE <- log(df$CSRE)
+md1 <- lme(lgCSRE~AME+week+AME*week,~1|Case,data=df)
+summary(md1)
+```
+
+```{r}
+plot(md1)
+```
+
+```{r}
+qqnorm(resid(md1))
+qqline(resid(md1))
+```
+
+
+
+## Friedman Test
+
+The Friedman test is a non-parametric test, that tests for differences across multiple treatments by first ranking the blocks of data and analyzing them by columns. The data was divided into 3 groups corresponding to the eye infection groups (RE, LE, OK) and then the test was performed on each response.\ 
+
+The hypothesis test is as follows;\
+
+H0: The scores across the 9 weeks are equal\
+H1: The scores across the 9 weeks are different\
+
+All tests were evaluated at an alpha <= 0.05, anything greater was rejected as not being statistically significant.\
+
+
+```{r}
+#divide the data into the groups
+library(dplyr)
+re <- filter(df,AME=="RE")
+le <- filter(df,AME=="LE")
+ok <- filter(df,AME=="OK")
+```
+
+
+### SEWR/RE
+
+RESULT:\
+RE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - treatment scores across the 9 weeks are the same for patients with infection in the left eye\
+OK: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(SEWRRE~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(SEWRRE~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(SEWRRE~week|Case,data=ok)
+```
+
+
+
+### SEWR/LE
+
+RESULT:\
+RE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - treatment scores across the 9 weeks are the same for patients with infection in the left eye\
+OK: Reject null hypothesis - treatment scores across the 9 weeks are not the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(SEWRLE~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(SEWRLE~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(SEWRRE~week|Case,data=ok)
+```
+
+
+
+### NVA/RE
+
+RESULT:\
+RE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the right eye\
+LE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the left eye\
+OK: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(NVARE~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(NVARE~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(NVARE~week|Case,data=ok)
+```
+
+
+
+### NVA/LE
+
+RESULT:\
+RE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - treatment scores across the 9 weeks are the same for patients with infection in the left eye\
+OK: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(NVALE~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(NVALE~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(NVALE~week|Case,data=ok)
+```
+
+
+
+### CS/LE
+
+RESULT:\
+RE: Do not reject the null hypothesis - treatment scores across the 9 weeks are the same for patients with infection in the right eye\
+LE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the left eye\
+OK: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(CSLE~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(CSLE~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(CSLE~week|Case,data=ok)
+```
+
+
+### CS/RE
+
+RESULT:\
+RE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the right eye\
+LE: Reject null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - treatment scores across the 9 weeks are the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(CSRE~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(CSRE~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(CSRE~week|Case,data=ok)
+```
+
+
+### SA
+
+RESULT:\
+RE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the right eye\
+LE: Reject the null hypothesis - treatment scores across the 9 weeks are not the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - treatment scores across the 9 weeks are the same for patients with no infection\
+
+```{r}
+print(paste("Friedman Test For Patients with Infection in the Right Eye"))
+friedman.test(SA~week|Case,data=re)
+
+print(paste("Friedman Test For Patients with Infection in the Left Eye"))
+friedman.test(SA~week|Case,data=le)
+
+print(paste("Friedman Test For Patients with No Infection"))
+friedman.test(SA~week|Case,data=ok)
+```
+
+
+
+## Post-Hoc Test: Wilcox Test
+
+The Friedman test is the non-parametric alternative to the repeated measures ANOVA. It tests for a difference between treatments but does not identify which pair has the difference, for this a post-hoc test needs to be performed. In this case we utilize the pairwise Wilcox signed test which is the non-parametric alternative to the paired t-test. It will be used to determine if the treatment was effective in making a change between week0 scores (pre-treatment) and and week8 scores ( post-treatment).\
+
+The profile plots give an idea of how the values changed overall for each response, these were used as a guide for creating the hypothesis test.\
+
+```{r}
+#Read in the dataset with week8 labelled as Post-treatment
+df3 <- read.csv("eye.csv")
+
+re <- filter(df3,AME=="RE")
+le <- filter(df3,AME=="LE")
+ok <- filter(df3,AME=="OK")
+```
+
+
+### SEWR/RE 
+
+The changes from the profile plot where slight and so we test if there was any significant overall change between pre and post test scores.\
+
+H0: Pre_SEWRRE = Post_SEWRRE\
+H1: Pre_SEWRRE != Post_SEWRRE\
+
+RESULT:\
+RE:Do not reject null hypothesis -  pre and post treatment scores are the same for patients with infection in the right eye\
+LE:Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the left eye\
+OK:Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_SEWRRE,re$SEWRRE,paired=TRUE)
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_SEWRRE,le$SEWRRE,paired=TRUE)
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_SEWRRE,ok$SEWRRE,paired=TRUE)
+```
+
+
+### SEWR/LE  
+
+The changes from the profile plot where slight and so we test if there was any significant overall change between pre and post test scores\
+
+H0: Pre_SEWRLE = Post_SEWRLE\
+H1: Pre_SEWRLE != Post_SEWRLE\
+
+RESULT:\
+RE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_SWERLE,re$SEWRLE,paired=TRUE)
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_SWERLE,le$SEWRLE,paired=TRUE)
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_SWERLE,ok$SEWRLE,paired=TRUE)
+```
+
+
+
+### NVA/RE 
+
+The changes from the profile plot was unclear\
+
+H0: Pre_NVARE = Post_NVARE\
+H1: Pre_NVARE != Post_NVARE\
+
+RESULT:\
+RE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_NVARE,re$NVARE,paired=TRUE)
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_NVARE,le$NVARE,paired=TRUE)
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_NVARE,ok$NVARE,paired=TRUE)
+```
+
+
+### NVA/LE 
+
+The changes from the profile plot was unclear\
+
+H0: Pre_NVALE = Post_NVALE\
+H1: Pre_NVALE != Post_NVALE\
+
+RESULT:\
+RE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_NVALE,re$NVALE,paired=TRUE)
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_NVALE,le$NVALE,paired=TRUE)
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_NVALE,ok$NVALE,paired=TRUE)
+```
+
+
+
+### CS/RE 
+
+From the profile plot the experimental group had an increase in scores and the control group had no change \
+
+Experiment group\
+H0: Pre_CSRE <= Post_CSRE\
+H1: Pre_CSRE > Post_CSRE\
+
+Control group\
+H0: Pre_CSRE = Post_CSRE\
+H1: Pre_CSRE != Post_CSRE\
+
+RESULT:\
+RE: Reject null hypothesis - pre and post treatment scores are not the same for patients with infection in the right eye\
+LE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+```{r}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_CSRE,re$CSRE,paired=TRUE, alternative = "g")
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_CSRE,le$CSRE,paired=TRUE, alternative = "g")
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_CSRE,ok$CSRE,paired=TRUE)
+```
+
+
+### CS/LE
+
+From the profile plot the experimental group had an increase in scores\
+
+Experiment group\
+H0: Pre_CSLE <= Post_CSLE\
+H1: Pre_CSLE > Post_CSLE\
+
+Control group\
+H0: Pre_CSLE = Post_CSLE\
+H1: Pre_CSLE != Post_CSLE\
+
+RESULT:\
+RE: Do not reject null hypothesis - pre and post treatment scores are the same for patients with infection in the right eye\
+LE: Reject null hypothesis - pre and post treatment scores are not the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_CSLE,re$CSLE,paired=TRUE, alternative="g")
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_CSLE,le$CSLE,paired=TRUE, alternative="g")
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_CSLE,ok$CSLE,paired=TRUE)
+```
+
+
+### SA
+
+From the profile plot the experimental group had a decrease in scores for the experimental group\
+
+Experiment Group\
+H0: Pre_SA >= Post_SA \
+H1: Pre_SA < Post_SA\
+
+Control Group\
+H0: Pre_SA = Post_SA \
+H1: Pre_SA != Post_SA \
+
+
+RESULT:\
+RE: Reject null hypothesis - pre and post treatment scores are not the same for patients with infection in the right eye\
+LE: Reject null hypothesis - pre and post treatment scores are not the same for patients with infection in the left eye\
+OK: Do not reject null hypothesis - pre and post treatment scores are the same for patients with no infection\
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print(paste("Wilcox Test For Group with Infection in Right Eye"))
+wilcox.test(re$Post_SA,re$SA,paired=TRUE, alternative="l")
+
+print(paste("Wilcox Test For Group with Infection in Left Eye"))
+wilcox.test(le$Post_SA,le$SA,paired=TRUE, alternative = "l")
+
+print(paste("Wilcox Test For Group No Infection"))
+wilcox.test(ok$Post_SA,ok$SA,paired=TRUE)
+```
+
+
+## Correlation Analysis 
+
+To determine if there is an association between Age and the recorded responses, a Kendall rank correlation was used. The Kendall Rank correlation is a non-parametric  test that measures the strength of dependence between two continous variables. It was used in this analysis because the test has no distribution or independence requirements.\
+
+H0: tau = 0 \
+H1: tau != 0\
+
+
+### RIGHT EYE INFECTED
+
+SEWR/RE: Fail to reject the null hypothesis - Age and SEWR in the right eye are independent for patients with infection in the right eye
+```{r}
+cor.test(re$Age,re$SEWRRE,method="kendall")
+```
+
+SWER/LE: Reject the null hypothesis - Age and SEWR in the right eye are dependent for patients with infection in the right eye.\
+         There is a weak negative association
+```{r}
+cor.test(re$Age,re$SEWRLE,method="kendall")
+```
+
+
+NVA/RE: Fail to reject the null hypothesis - Age and NVA in the right eye are independent for patients with infection in the right eye
+```{r}
+cor.test(re$Age,re$NVARE,method="kendall")
+```
+
+
+NVA/LE: Reject the null hypothesis - Age and NVA in the left eye are dependent for patients with infection in the right eye.\
+         There is a medium negative association
+```{r}
+cor.test(re$Age,re$NVALE,method="kendall")
+```
+
+
+CS/RE: Reject the null hypothesis - Age and CS in the right eye are dependent for patients with infection in the right eye.\
+       There is a medium negative association
+```{r}
+cor.test(re$Age,re$CSRE,method="kendall")
+```
+
+
+CS/LE: Fail to reject the null hypothesis - Age and CS in the left eye are independent for patients with infection in the right eye
+```{r}
+cor.test(re$Age,re$CSLE,method="kendall")
+```
+
+
+SA: Fail to reject the null hypothesis - Age and SA eye are independent for patients with infection in the right eye
+```{r}
+cor.test(re$Age,re$SA,method="kendall")
+```
+
+
+### LEFT EYE INFECTED
+
+SEWR/RE: Reject the null hypothesis - Age and SEWR in the right eye are dependent for patients with infection in the left eye
+         There is a strong positive association 
+```{r}
+cor.test(le$Age,le$SEWRRE,method="kendall")
+```
+
+SWER/LE: Reject the null hypothesis - Age and SEWR in the right eye are dependent for patients with infection in the left eye.\
+         There is a strong positive association
+```{r}
+cor.test(le$Age,le$SEWRLE,method="kendall")
+```
+
+
+NVA/RE: Reject the null hypothesis - Age and NVA in the right eye are dependent for patients with infection in the left eye
+        There is a strong negative association
+```{r}
+cor.test(le$Age,le$NVARE,method="kendall")
+```
+
+
+NVA/LE: Reject the null hypothesis - Age and NVA in the left eye are dependent for patients with infection in the right eye.\
+         There is a medium negative association
+```{r}
+cor.test(re$Age,re$NVALE,method="kendall")
+```
+
+
+CS/RE: Reject the null hypothesis - Age and CS in the right eye are dependent for patients with infection in the left eye.\
+       There is a medium positive association
+```{r}
+cor.test(le$Age,le$CSRE,method="kendall")
+```
+
+
+CS/LE: Fail to reject the null hypothesis - Age and CS in the left eye are independent for patients with infection in the leftt eye
+```{r}
+cor.test(le$Age,le$CSLE,method="kendall")
+```
+
+
+SA: Fail to reject the null hypothesis - Age and SA eye are independent for patients with infection in the right eye
+```{r}
+cor.test(re$Age,re$SA,method="kendall")
+```
+
+
+### NO INFECTION
+
+SEWR/RE: Fail to reject the null hypothesis - Age and SEWR in the right eye are independent for patients with no infection 
+```{r}
+cor.test(ok$Age,ok$SEWRRE,method="kendall")
+```
+
+SWER/LE: Reject the null hypothesis - Age and SEWR in the left eye are dependent for patients with no infection\
+         There is a medium positive association
+```{r}
+cor.test(ok$Age,ok$SEWRLE,method="kendall")
+```
+
+
+NVA/RE: Fail to reject the null hypothesis - Age and NVA in the right eye are independent for patients with no infection\
+        There is a medium positive association
+```{r}
+cor.test(ok$Age,ok$NVARE,method="kendall")
+```
+
+
+NVA/LE: Reject the null hypothesis - Age and NVA in the left eye are dependent for patients with no infection.\
+         There is a medium positive association
+```{r}
+cor.test(ok$Age,ok$NVALE,method="kendall")
+```
+
+
+CS/RE: Reject the null hypothesis - Age and CS in the right eye are dependent for patients with no infection\
+       There is a weak negative association
+```{r}
+cor.test(ok$Age,ok$CSRE,method="kendall")
+```
+
+
+CS/LE: Fail to reject the null hypothesis - Age and CS in the left eye are independent for patients with no infection\
+```{r}
+cor.test(ok$Age,ok$CSLE,method="kendall")
+```
+
+
+SA: Fail to reject the null hypothesis - Age and SA eye are independent for patients with infection in the right eye
+```{r}
+cor.test(ok$Age,ok$SA,method="kendall")
+```
+
+
+
+# Conclusion
+
+A mixed model was initially utilized but since the data was highly non-normal, data transformations did not produce well fitted models. Instead, the Friedman test was used to determine if there was a difference among the three infection groups. Then a Post-hoc test was performed using the Wilcox test to ascertain if there was a difference between pre and post treatment scores.\
+
+The result of the tests was that there was an increase between pre and post treatment scores for:
+    1. CS in the right eye for patients with infection in either eye.
+    2. CS in the left eye for patients with infection in the left eye.
+    3. SA for patients with infection in either eye. 
+The treatment can therefore be said to be effective for the responses listed above.\
+
+The placebo effect would provide an explanation for changes in scores for patients without an eye infection, especially since all the Wilcox test for this group of patients did not reject the null that there was no statistical change in this group.\
+
+To check if there is an association between age and the responses, and the magnitude of the association, a Kendall Rank correlation test was utilized across the 3 infection groups. The results across groups was not consistent and so more data will need to be collected and analyzed to make a consistent conclusion.
+
+
